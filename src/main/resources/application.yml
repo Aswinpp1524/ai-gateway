@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: ai-gateway
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/gateway
+    username: gateway
+    password: gateway
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      embedding:
+        options:
+          model: nomic-embed-text
+
+gateway:
+  providers:
+    openai:
+      enabled: true
+      base-url: https://api.openai.com
+      api-key: ${OPENAI_API_KEY:}
+      timeout-seconds: 60
+    anthropic:
+      enabled: true
+      base-url: https://api.anthropic.com
+      api-key: ${ANTHROPIC_API_KEY:}
+      timeout-seconds: 60
+    ollama:
+      enabled: true
+      base-url: http://localhost:11434
+      timeout-seconds: 120
+  fallback-order:
+    - openai
+    - anthropic
+    - ollama
+  cache:
+    enabled: true
+    similarity-threshold: 0.95
+    ttl-hours: 24
+  embedding:
+    dimension: 768
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    tags:
+      application: ai-gateway
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    dev.gateway: DEBUG

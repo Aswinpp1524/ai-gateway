@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: gw-postgres
+    environment:
+      POSTGRES_DB: gateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: gw-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gw-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gw-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafanadata:/var/lib/grafana
+
+volumes:
+  pgdata:
+  grafanadata:
