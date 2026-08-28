@@ -32,6 +32,8 @@ gateway:
       enabled: true
       base-url: http://localhost:11434
       timeout-seconds: 120
+      models:
+        - llama3.2
   fallback-order:
     - openai
     - anthropic

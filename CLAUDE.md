@@ -69,3 +69,9 @@ Propose the design before writing code for anything structural — show the
 options and trade-offs, and let me choose. Prefer small vertical slices over
 large layer-at-a-time changes. Explain reasoning for non-obvious decisions;
 I need to be able to defend every line of this in an interview.
+
+- Jackson 3: jackson-core and jackson-databind moved to `tools.jackson.*`,
+  but jackson-annotations kept the old `com.fasterxml.jackson.annotation`
+  namespace. So JsonMapper is tools.jackson.databind.json.JsonMapper but
+  @JsonProperty is still com.fasterxml.jackson.annotation.JsonProperty.
+- 
