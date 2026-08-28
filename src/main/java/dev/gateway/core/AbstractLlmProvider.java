@@ -32,8 +32,8 @@ public abstract class AbstractLlmProvider implements LlmProvider {
     protected ProviderException classifyError(Throwable error) {
         if (error instanceof WebClientResponseException responseException) {
             int status = responseException.getStatusCode().value();
-            String message = "Provider returned status " + status;
-            return (status == 429 || status >= 500)
+            String message = "Provider returned status " + status + ": " + responseException.getResponseBodyAsString();
+            return isRetryable(status, responseException)
                     ? new RetryableProviderException(name(), message, error)
                     : new TerminalProviderException(name(), message, error);
         }
@@ -43,5 +43,15 @@ public abstract class AbstractLlmProvider implements LlmProvider {
             return new RetryableProviderException(name(), "Provider request failed: " + error.getMessage(), error);
         }
         return new TerminalProviderException(name(), "Unexpected provider error: " + error.getMessage(), error);
+    }
+
+    /**
+     * Whether an HTTP error response should be treated as retryable. Default is status-code-only
+     * (429 and 5xx retryable, other 4xx terminal); override when a provider's error body carries a
+     * more specific signal than the status code alone (e.g. distinguishing an exhausted quota, which
+     * won't recover on retry, from a transient rate limit, which will).
+     */
+    protected boolean isRetryable(int status, WebClientResponseException responseException) {
+        return status == 429 || status >= 500;
     }
 }

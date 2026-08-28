@@ -17,6 +17,7 @@ Metrics and tracing are cross-cutting concerns present at every layer.
 
 Packages under `dev.gateway`:
 - `api` — controllers and DTOs in OpenAI wire format
+- `core` — LlmProvider interface, AbstractLlmProvider, exception hierarchy
 - `core/model` — vendor-neutral domain types (ChatRequest, ChatResponse, Usage)
 - `core/router` — model selection and fallback chain
 - `core/cache` — semantic cache
@@ -31,6 +32,12 @@ Packages under `dev.gateway`:
 
 - Fully reactive. Never call `.block()`. No blocking I/O on event loop threads.
 - `core` must never import from `provider`. Dependencies point inward.
+- Provider adapters expose two methods: `complete()` returning
+  `Mono<ChatResponse>` and `stream()` returning `Flux<ChatChunk>`. Request
+  building and error mapping are shared private helpers called by both —
+  never duplicated.
+- Vendor wire DTOs stay package-private inside their provider package. They
+  must never be visible to `core` or `api`.
 - Every provider call goes through the resilience wrapper. No direct WebClient
   calls from routing code.
 - Money is stored as integer micros, never floating point.
@@ -51,11 +58,18 @@ model.
 
 ## Environment gotchas
 
-- Jackson 3: imports are `tools.jackson.*`, not `com.fasterxml.jackson.*`.
-- Testcontainers 2.x database modules aren't published; tests use the
-  docker-compose stack or WireMock rather than containers.
+- Jackson 3: jackson-core and jackson-databind moved to `tools.jackson.*`,
+  but jackson-annotations kept the old `com.fasterxml.jackson.annotation`
+  namespace. So JsonMapper is `tools.jackson.databind.json.JsonMapper` but
+  `@JsonProperty` is still `com.fasterxml.jackson.annotation.JsonProperty`.
+- Testcontainers 2.x database modules aren't published to Maven Central;
+  tests use the docker-compose stack or WireMock rather than containers.
 - Ollama runs natively on the host at localhost:11434, not in compose.
+  There are two ollama config blocks: `spring.ai.ollama` for embeddings
+  (Day 3) and `gateway.providers.ollama` for the chat adapter.
 - Embedding dimension is 768 (nomic-embed-text) and is baked into the schema.
+- Ollama streams newline-delimited JSON, not SSE. OpenAI and Anthropic use
+  real SSE frames with a `data:` prefix. The adapters parse differently.
 
 ## Local development
 
@@ -70,8 +84,6 @@ options and trade-offs, and let me choose. Prefer small vertical slices over
 large layer-at-a-time changes. Explain reasoning for non-obvious decisions;
 I need to be able to defend every line of this in an interview.
 
-- Jackson 3: jackson-core and jackson-databind moved to `tools.jackson.*`,
-  but jackson-annotations kept the old `com.fasterxml.jackson.annotation`
-  namespace. So JsonMapper is tools.jackson.databind.json.JsonMapper but
-  @JsonProperty is still com.fasterxml.jackson.annotation.JsonProperty.
-- 
+Verify environment facts against the actual jars, docs, or a running service
+rather than relying on memory. Version details in this file have already been
+wrong once.

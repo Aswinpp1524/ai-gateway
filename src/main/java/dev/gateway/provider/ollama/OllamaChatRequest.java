@@ -2,7 +2,10 @@ package dev.gateway.provider.ollama;
 
 import java.util.List;
 
-record OllamaChatRequest(
+record
+
+
+OllamaChatRequest(
         String model,
         List<OllamaMessage> messages,
         boolean stream,
