@@ -8,6 +8,7 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebInputException;
 
 import dev.gateway.core.ProviderException;
+import dev.gateway.core.router.NoProviderAvailableException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {

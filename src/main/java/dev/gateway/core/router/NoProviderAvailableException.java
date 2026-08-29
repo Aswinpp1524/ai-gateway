@@ -1,4 +1,4 @@
-package dev.gateway.api;
+package dev.gateway.core.router;
 
 public class NoProviderAvailableException extends RuntimeException {
 

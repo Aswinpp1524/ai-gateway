@@ -33,12 +33,18 @@ public class ChatCompletionMapper {
         ChatMessage message = new ChatMessage("assistant", response.content());
         ChatCompletionChoice choice = new ChatCompletionChoice(0, message, toFinishReason(response.finishReason()));
         return new ChatCompletionResponse(
-                "chatcmpl-" + response.id(),
+                withChatcmplPrefix(response.id()),
                 "chat.completion",
                 response.createdAt().getEpochSecond(),
                 response.model(),
                 List.of(choice),
                 toApiUsage(response.usage()));
+    }
+
+    /** OpenAI's own ids already start with "chatcmpl-"; Anthropic's (msg_...) and Ollama's
+     * (a generated UUID) don't, and still need it added. */
+    private static String withChatcmplPrefix(String id) {
+        return id.startsWith("chatcmpl-") ? id : "chatcmpl-" + id;
     }
 
     /**
