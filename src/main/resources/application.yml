@@ -31,6 +31,10 @@ gateway:
       base-url: https://api.anthropic.com
       api-key: ${ANTHROPIC_API_KEY:}
       timeout-seconds: 60
+      default-max-tokens: 4096
+      models:
+        - claude-sonnet-4-5
+        - claude-haiku-4-5
     ollama:
       enabled: true
       base-url: http://localhost:11434

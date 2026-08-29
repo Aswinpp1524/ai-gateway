@@ -30,6 +30,9 @@ public abstract class AbstractLlmProvider implements LlmProvider {
 
     /** Classifies a failure from a provider call as retryable or terminal. */
     protected ProviderException classifyError(Throwable error) {
+        if (error instanceof ProviderException providerException) {
+            return providerException;
+        }
         if (error instanceof WebClientResponseException responseException) {
             int status = responseException.getStatusCode().value();
             String message = "Provider returned status " + status + ": " + responseException.getResponseBodyAsString();

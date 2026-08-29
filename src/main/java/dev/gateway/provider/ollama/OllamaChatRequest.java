@@ -2,10 +2,10 @@ package dev.gateway.provider.ollama;
 
 import java.util.List;
 
-record
+import com.fasterxml.jackson.annotation.JsonInclude;
 
-
-OllamaChatRequest(
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record OllamaChatRequest(
         String model,
         List<OllamaMessage> messages,
         boolean stream,
