@@ -6,7 +6,7 @@ spring:
       host: localhost
       port: 6379
   r2dbc:
-    url: r2dbc:postgresql://localhost:5432/gateway
+    url: r2dbc:postgresql://localhost:5433/gateway
     username: gateway
     password: gateway
   ai:
@@ -59,6 +59,9 @@ gateway:
       jitter-factor: 0.5
     timeout:
       seconds: 30
+  tenant:
+    cache-ttl-seconds: 30
+    rate-limit-bucket-ttl-seconds: 120
   cache:
     enabled: true
     similarity-threshold: 0.95
