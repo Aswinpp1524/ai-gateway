@@ -155,6 +155,23 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Spend rate",
+      "description": "gateway_cost_micros_total converted from micros to dollars/minute, by provider. Cache hits contribute zero.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(gateway_cost_micros_total[5m])) by (provider) * 60 / 1000000",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

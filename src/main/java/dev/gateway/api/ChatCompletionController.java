@@ -19,6 +19,7 @@ import dev.gateway.core.cache.SemanticCache;
 import dev.gateway.core.model.ChatChunk;
 import dev.gateway.core.model.ChatRequest;
 import dev.gateway.core.model.Usage;
+import dev.gateway.metering.MeteringService;
 import dev.gateway.observability.GatewayMetrics;
 import dev.gateway.tenant.TenantContext;
 
@@ -40,14 +41,16 @@ public class ChatCompletionController {
     private final ChatCompletionMapper mapper;
     private final ObjectMapper objectMapper;
     private final GatewayMetrics gatewayMetrics;
+    private final MeteringService meteringService;
 
     public ChatCompletionController(
             SemanticCache semanticCache, ChatCompletionMapper mapper, ObjectMapper objectMapper,
-            GatewayMetrics gatewayMetrics) {
+            GatewayMetrics gatewayMetrics, MeteringService meteringService) {
         this.semanticCache = semanticCache;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.gatewayMetrics = gatewayMetrics;
+        this.meteringService = meteringService;
     }
 
     @PostMapping("/chat/completions")
@@ -61,12 +64,10 @@ public class ChatCompletionController {
     private Mono<ResponseEntity<?>> completeResponse(ChatRequest coreRequest) {
         Instant start = Instant.now();
         return TenantContext.current()
-                .flatMap(tenant -> {
-                    String tenantId = tenant.id().toString();
-                    return semanticCache.complete(coreRequest, tenant.id())
-                            .doOnNext(result -> recordCompleteSuccess(tenantId, coreRequest.model(), start, result))
-                            .doOnError(error -> recordFailure(tenantId, coreRequest.model(), start, error));
-                })
+                .flatMap(tenant -> semanticCache.complete(coreRequest, tenant.id())
+                        .doOnNext(result -> recordCompleteSuccess(tenant.id(), coreRequest.model(), start, result))
+                        .doOnError(error -> recordFailure(
+                                tenant.id().toString(), coreRequest.model(), start, error)))
                 .map(result -> {
                     ChatCompletionResponse body = mapper.toApiResponse(result.response());
                     ResponseEntity.BodyBuilder builder =
@@ -83,7 +84,7 @@ public class ChatCompletionController {
         Instant start = Instant.now();
         return TenantContext.current()
                 .flatMap(tenant -> {
-                    String tenantId = tenant.id().toString();
+                    UUID tenantId = tenant.id();
                     return semanticCache.stream(coreRequest, tenant.id())
                             .map(result -> {
                                 Flux<ServerSentEvent<String>> body = toSseFlux(
@@ -104,14 +105,18 @@ public class ChatCompletionController {
         return hit ? "HIT" : "MISS";
     }
 
-    private void recordCompleteSuccess(String tenantId, String model, Instant start, CacheResult result) {
+    private void recordCompleteSuccess(UUID tenantId, String model, Instant start, CacheResult result) {
         Duration total = Duration.between(start, Instant.now());
         Duration overhead = total.minus(result.providerLatency());
         String provider = result.response().servedBy();
-        gatewayMetrics.recordRequest(tenantId, model, provider, result.hit(), "success", total, overhead);
+        String tenantIdStr = tenantId.toString();
+        gatewayMetrics.recordRequest(tenantIdStr, model, provider, result.hit(), "success", total, overhead);
         Usage usage = result.response().usage();
         gatewayMetrics.recordTokens(
-                tenantId, model, provider, usage.estimated(), usage.promptTokens(), usage.completionTokens());
+                tenantIdStr, model, provider, usage.estimated(), usage.promptTokens(), usage.completionTokens());
+        meteringService.record(
+                tenantId, model, provider, usage.promptTokens(), usage.completionTokens(), result.hit(),
+                total.toMillis());
     }
 
     /** No overhead recorded here - a request that failed before producing a CacheResult never
@@ -133,7 +138,7 @@ public class ChatCompletionController {
      * attribute a cancellation to there anyway).
      */
     private Flux<ServerSentEvent<String>> toSseFlux(
-            Flux<ChatChunk> chunks, String model, String tenantId, boolean cacheHit, Instant start) {
+            Flux<ChatChunk> chunks, String model, UUID tenantId, boolean cacheHit, Instant start) {
         String id = "chatcmpl-" + UUID.randomUUID();
         long created = Instant.now().getEpochSecond();
         AtomicReference<ChatChunk> terminal = new AtomicReference<>();
@@ -145,7 +150,7 @@ public class ChatCompletionController {
                     }
                 })
                 .doOnComplete(() -> recordStreamSuccess(tenantId, model, cacheHit, start, terminal.get()))
-                .doOnError(error -> recordFailure(tenantId, model, start, error))
+                .doOnError(error -> recordFailure(tenantId.toString(), model, start, error))
                 .concatMap(chunk -> Flux.fromIterable(mapper.toApiChunks(chunk, id, created, model)))
                 .map(this::toEvent)
                 .concatWithValues(DONE_EVENT)
@@ -160,15 +165,19 @@ public class ChatCompletionController {
      * - separating them honestly would need finer-grained instrumentation inside SemanticCache's
      * streaming path than exists today, so this skips overhead for misses rather than guess.
      */
-    private void recordStreamSuccess(String tenantId, String model, boolean cacheHit, Instant start, ChatChunk terminal) {
+    private void recordStreamSuccess(UUID tenantId, String model, boolean cacheHit, Instant start, ChatChunk terminal) {
         Duration total = Duration.between(start, Instant.now());
         String provider = terminal != null ? terminal.servedBy() : UNKNOWN_PROVIDER;
         Duration overhead = cacheHit ? total : null;
-        gatewayMetrics.recordRequest(tenantId, model, provider, cacheHit, "success", total, overhead);
+        String tenantIdStr = tenantId.toString();
+        gatewayMetrics.recordRequest(tenantIdStr, model, provider, cacheHit, "success", total, overhead);
         if (terminal != null && terminal.usage() != null) {
             Usage usage = terminal.usage();
             gatewayMetrics.recordTokens(
-                    tenantId, model, provider, usage.estimated(), usage.promptTokens(), usage.completionTokens());
+                    tenantIdStr, model, provider, usage.estimated(), usage.promptTokens(), usage.completionTokens());
+            meteringService.record(
+                    tenantId, model, provider, usage.promptTokens(), usage.completionTokens(), cacheHit,
+                    total.toMillis());
         }
     }
 

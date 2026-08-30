@@ -69,6 +69,45 @@ gateway:
     max-cacheable-temperature: 0.3
   embedding:
     dimension: 768
+  # Verified against live vendor pricing pages on 2026-08-30:
+  #   Anthropic: platform.claude.com/docs/en/about-claude/pricing
+  #   OpenAI:    developers.openai.com/api/docs/pricing
+  # Recheck against those pages before trusting these numbers again - vendor pricing changes
+  # without notice, and nothing in this repo will tell you if it has.
+  #
+  # These are BASE prices and do not account for provider-side prompt caching (OpenAI's cached
+  # input tokens run ~50% off; Anthropic's cache-hit tokens run ~10% of base input price). Actual
+  # spend on cache-friendly workloads (e.g. large repeated system prompts) will run below what
+  # these figures predict - this is a deliberate overestimate, not a bug.
+  #
+  # Values are micros per million tokens, not dollars, so cost calculation stays integer-only
+  # end to end (see CostCalculator) - e.g. 2500000 here means $2.50 per 1M tokens.
+  pricing:
+    default-pricing:
+      input-price-per-million-micros: 1000000
+      output-price-per-million-micros: 3000000
+    models:
+      "[gpt-4o]":
+        input-price-per-million-micros: 2500000
+        output-price-per-million-micros: 10000000
+      "[gpt-4o-mini]":
+        input-price-per-million-micros: 150000
+        output-price-per-million-micros: 600000
+      "[claude-sonnet-4-5]":
+        input-price-per-million-micros: 3000000
+        output-price-per-million-micros: 15000000
+      # $1.00 / $5.00 per MTok. The previous $0.80/$4.00 here was Claude Haiku 3.5's pricing
+      # (now retired), not claude-haiku-4-5's.
+      "[claude-haiku-4-5]":
+        input-price-per-million-micros: 1000000
+        output-price-per-million-micros: 5000000
+      # Bracketed because the key contains a literal dot - Spring's relaxed binding flattens
+      # nested YAML into dotted property paths, so an unbracketed "llama3.2:" key is ambiguous
+      # with a nested property path and silently fails to bind (verified live: it fell through
+      # to default-pricing instead of matching, producing a non-zero cost for a $0 local model).
+      "[llama3.2]":
+        input-price-per-million-micros: 0
+        output-price-per-million-micros: 0
 
 management:
   endpoints:

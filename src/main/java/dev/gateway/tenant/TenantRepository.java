@@ -20,7 +20,7 @@ class TenantRepository {
      * indistinguishable to the caller and both correctly mean "reject this request". */
     Mono<Tenant> findByApiKeyHash(String keyHash) {
         return databaseClient.sql("""
-                        SELECT t.id, t.name, t.rate_limit_rpm
+                        SELECT t.id, t.name, t.rate_limit_rpm, t.monthly_budget_micros
                         FROM api_keys ak
                         JOIN tenants t ON t.id = ak.tenant_id
                         WHERE ak.key_hash = :keyHash AND ak.active = true
@@ -29,7 +29,8 @@ class TenantRepository {
                 .map((row, metadata) -> new Tenant(
                         row.get("id", UUID.class),
                         row.get("name", String.class),
-                        row.get("rate_limit_rpm", Integer.class)))
+                        row.get("rate_limit_rpm", Integer.class),
+                        row.get("monthly_budget_micros", Long.class)))
                 .first();
     }
 }

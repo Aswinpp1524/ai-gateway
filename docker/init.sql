@@ -31,6 +31,9 @@ CREATE TABLE cache_entries (
 CREATE INDEX idx_cache_tenant_model ON cache_entries (tenant_id, model);
 CREATE INDEX idx_cache_expires ON cache_entries (expires_at);
 
+-- One row per SUCCESSFUL request only - a failed request consumed no tokens and cost nothing,
+-- so MeteringService never writes a row for it. Every row here represents billable (or
+-- cache-zeroed) usage, not a request attempt log.
 CREATE TABLE usage_log (
                            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                            tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -43,6 +46,11 @@ CREATE TABLE usage_log (
                            latency_ms INT NOT NULL,
                            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+COMMENT ON TABLE usage_log IS
+    'One row per successful request only (not every request attempt) - a failed request '
+    'consumed no tokens and cost nothing, so no row is written for it. cache_hit=true rows '
+    'always have cost_micros=0.';
 
 CREATE INDEX idx_usage_tenant_time ON usage_log (tenant_id, created_at DESC);
 

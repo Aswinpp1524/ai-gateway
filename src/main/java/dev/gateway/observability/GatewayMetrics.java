@@ -69,6 +69,11 @@ public class GatewayMetrics {
         registry.counter("gateway.stream.cancellations", "provider", provider).increment();
     }
 
+    public void recordCost(String tenant, String model, String provider, long costMicros) {
+        registry.counter("gateway.cost.micros", "tenant", tenant, "model", model, "provider", provider)
+                .increment(costMicros);
+    }
+
     private Timer timer(String name, Tags tags) {
         return Timer.builder(name).tags(tags).publishPercentileHistogram().register(registry);
     }
