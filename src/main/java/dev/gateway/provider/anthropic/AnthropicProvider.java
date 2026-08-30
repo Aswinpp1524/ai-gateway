@@ -87,7 +87,7 @@ public class AnthropicProvider extends AbstractLlmProvider {
         return chunks
                 .concatWith(Mono.defer(() -> terminalEmitted.get()
                         ? Mono.empty()
-                        : Mono.just(ChatChunk.terminal(Usage.estimated(0, 0), FinishReason.ERROR))))
+                        : Mono.just(ChatChunk.terminal(Usage.estimated(0, 0), FinishReason.ERROR, name()))))
                 .onErrorMap(this::mapError);
     }
 
@@ -154,7 +154,7 @@ public class AnthropicProvider extends AbstractLlmProvider {
                 Usage usage = usageOf(pendingInputTokens.get(),
                         event.usage() != null ? event.usage().outputTokens() : null);
                 FinishReason reason = mapStopReason(event.delta() != null ? event.delta().stopReason() : null);
-                yield Mono.just(ChatChunk.terminal(usage, reason));
+                yield Mono.just(ChatChunk.terminal(usage, reason, name()));
             }
             case "error" -> {
                 AnthropicErrorEvent event = objectMapper.readValue(sse.data(), AnthropicErrorEvent.class);

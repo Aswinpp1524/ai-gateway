@@ -1,5 +1,6 @@
 package dev.gateway.core.cache;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,15 +25,12 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * Sits between the API layer and FallbackChainRouter: looks up a semantically similar prior
- * response before ever calling a provider, and writes new entries on a miss. ChatChunk (unlike
- * ChatResponse) carries no servedBy/model identity - streaming cache writes therefore can't
- * attribute servedBy accurately and fall back to a placeholder; see streamAndWrite.
+ * response before ever calling a provider, and writes new entries on a miss.
  */
 @Component
 public class SemanticCache {
 
     private static final Logger log = LoggerFactory.getLogger(SemanticCache.class);
-    private static final String SERVED_BY_UNKNOWN_STREAM = "unknown";
 
     private final FallbackChainRouter router;
     private final CacheRepository repository;
@@ -52,7 +50,10 @@ public class SemanticCache {
 
     public Mono<CacheResult> complete(ChatRequest request, UUID tenantId) {
         if (!properties.enabled() || !isCacheable(request)) {
-            return router.complete(request).map(response -> new CacheResult(response, false, null));
+            Instant callStart = Instant.now();
+            return router.complete(request)
+                    .map(response -> new CacheResult(
+                            response, false, null, Duration.between(callStart, Instant.now())));
         }
         String text = embeddingText(request);
         return embed(text).flatMap(embedding -> {
@@ -60,12 +61,16 @@ public class SemanticCache {
             return repository.findSimilar(tenantId, request.model(), literal, maxDistance())
                     .map(entry -> {
                         recordHit(entry.id());
-                        return new CacheResult(toChatResponse(entry.payload()), true, entry.similarity());
+                        return new CacheResult(toChatResponse(entry.payload()), true, entry.similarity(), Duration.ZERO);
                     })
-                    .switchIfEmpty(Mono.defer(() -> router.complete(request)
-                            .flatMap(response -> writeCacheEntry(tenantId, request, text, literal, response)
-                                    .onErrorResume(e -> logAndSwallow("cache write", e))
-                                    .thenReturn(new CacheResult(response, false, null)))));
+                    .switchIfEmpty(Mono.defer(() -> {
+                        Instant callStart = Instant.now();
+                        return router.complete(request)
+                                .flatMap(response -> writeCacheEntry(tenantId, request, text, literal, response)
+                                        .onErrorResume(e -> logAndSwallow("cache write", e))
+                                        .thenReturn(new CacheResult(
+                                                response, false, null, Duration.between(callStart, Instant.now()))));
+                    }));
         });
     }
 
@@ -106,7 +111,7 @@ public class SemanticCache {
                         return Mono.<ChatChunk>empty();
                     }
                     CachedResponsePayload payload = new CachedResponsePayload(
-                            request.model(), SERVED_BY_UNKNOWN_STREAM, accumulated.toString(),
+                            request.model(), last.servedBy(), accumulated.toString(),
                             last.usage().promptTokens(), last.usage().completionTokens(), last.usage().estimated(),
                             last.finishReason());
                     Instant expiresAt = Instant.now().plus(properties.ttl());
@@ -192,7 +197,7 @@ public class SemanticCache {
         String[] words = payload.content().split("(?<=\\s)");
         ChatChunk terminal = ChatChunk.terminal(
                 new Usage(payload.promptTokens(), payload.completionTokens(), payload.estimated()),
-                payload.finishReason());
+                payload.finishReason(), payload.servedBy());
         return Flux.fromArray(words).map(ChatChunk::of).concatWithValues(terminal);
     }
 

@@ -46,6 +46,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
     volumes:
       - grafanadata:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
 
 volumes:
   pgdata:

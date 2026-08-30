@@ -88,7 +88,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
         return chunks
                 .concatWith(Mono.defer(() -> terminalEmitted.get()
                         ? Mono.empty()
-                        : Mono.just(ChatChunk.terminal(Usage.estimated(0, 0), pendingFinishReason.get()))))
+                        : Mono.just(ChatChunk.terminal(Usage.estimated(0, 0), pendingFinishReason.get(), name()))))
                 .onErrorMap(this::mapError);
     }
 
@@ -123,7 +123,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
             OpenAiChatChunk chunk, AtomicReference<FinishReason> pendingFinishReason, AtomicBoolean terminalEmitted) {
         if (chunk.usage() != null) {
             terminalEmitted.set(true);
-            return Mono.just(ChatChunk.terminal(usageOf(chunk.usage()), pendingFinishReason.get()));
+            return Mono.just(ChatChunk.terminal(usageOf(chunk.usage()), pendingFinishReason.get(), name()));
         }
         if (chunk.choices() == null || chunk.choices().isEmpty()) {
             return Mono.empty();

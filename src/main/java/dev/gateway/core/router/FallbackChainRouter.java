@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import dev.gateway.core.LlmProvider;
+import dev.gateway.core.ProviderException;
 import dev.gateway.core.RetryableProviderException;
 import dev.gateway.core.model.ChatChunk;
 import dev.gateway.core.model.ChatRequest;
@@ -17,6 +18,7 @@ import dev.gateway.core.model.ChatResponse;
 import dev.gateway.core.resilience.ResilienceProperties;
 import dev.gateway.core.resilience.ResilientLlmProvider;
 import dev.gateway.core.resilience.TransientFailures;
+import dev.gateway.observability.GatewayMetrics;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -46,6 +48,7 @@ public class FallbackChainRouter {
     private static final Logger log = LoggerFactory.getLogger(FallbackChainRouter.class);
 
     private final List<LlmProvider> orderedProviders;
+    private final GatewayMetrics gatewayMetrics;
 
     public FallbackChainRouter(
             List<LlmProvider> rawProviders,
@@ -53,7 +56,9 @@ public class FallbackChainRouter {
             ResilienceProperties resilienceProperties,
             CircuitBreakerRegistry circuitBreakerRegistry,
             RetryRegistry retryRegistry,
-            TimeLimiterRegistry timeLimiterRegistry) {
+            TimeLimiterRegistry timeLimiterRegistry,
+            GatewayMetrics gatewayMetrics) {
+        this.gatewayMetrics = gatewayMetrics;
         Map<String, LlmProvider> byName = rawProviders.stream()
                 .collect(Collectors.toMap(LlmProvider::name, provider -> wrap(
                         provider, resilienceProperties, circuitBreakerRegistry, retryRegistry, timeLimiterRegistry)));
@@ -132,9 +137,13 @@ public class FallbackChainRouter {
         List<LlmProvider> rest = remaining.subList(1, remaining.size());
         return provider.complete(request)
                 .onErrorResume(error -> {
+                    if (error instanceof ProviderException providerException) {
+                        gatewayMetrics.recordProviderFailure(provider.name(), providerException.retryable());
+                    }
                     if (!rest.isEmpty() && TransientFailures.isFalloverEligible(error)) {
                         log.info("Provider {} failed ({}), falling through to {}",
                                 provider.name(), error.getMessage(), rest.get(0).name());
+                        gatewayMetrics.recordFallback(provider.name(), rest.get(0).name());
                         return attemptComplete(request, rest);
                     }
                     return Mono.error(normalizeFinalError(error));
@@ -145,13 +154,20 @@ public class FallbackChainRouter {
         LlmProvider provider = remaining.get(0);
         List<LlmProvider> rest = remaining.subList(1, remaining.size());
         return provider.stream(request)
-                .doOnCancel(() -> log.warn("Stream cancelled by client while using provider={}", provider.name()))
+                .doOnCancel(() -> {
+                    log.warn("Stream cancelled by client while using provider={}", provider.name());
+                    gatewayMetrics.recordStreamCancellation(provider.name());
+                })
                 .switchOnFirst((signal, flux) -> {
                     if (signal.hasError()) {
                         Throwable error = signal.getThrowable();
+                        if (error instanceof ProviderException providerException) {
+                            gatewayMetrics.recordProviderFailure(provider.name(), providerException.retryable());
+                        }
                         if (!rest.isEmpty() && TransientFailures.isFalloverEligible(error)) {
                             log.info("Provider {} failed before first chunk ({}), falling through to {}",
                                     provider.name(), error.getMessage(), rest.get(0).name());
+                            gatewayMetrics.recordFallback(provider.name(), rest.get(0).name());
                             return attemptStream(request, rest);
                         }
                         return Flux.error(normalizeFinalError(error));

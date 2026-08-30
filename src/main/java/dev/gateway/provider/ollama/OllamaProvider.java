@@ -92,7 +92,7 @@ public class OllamaProvider extends AbstractLlmProvider {
 
     private ChatChunk toChatChunk(OllamaChatResponse response) {
         if (response.done()) {
-            return ChatChunk.terminal(usageOf(response), mapFinishReason(response.doneReason()));
+            return ChatChunk.terminal(usageOf(response), mapFinishReason(response.doneReason()), name());
         }
         return ChatChunk.of(response.message().content());
     }
