@@ -12,8 +12,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import dev.gateway.core.ProviderException;
+import dev.gateway.core.cache.SemanticCache;
+import dev.gateway.core.model.ChatChunk;
 import dev.gateway.core.model.ChatRequest;
-import dev.gateway.core.router.FallbackChainRouter;
+import dev.gateway.tenant.TenantContext;
 
 import jakarta.validation.Valid;
 import reactor.core.publisher.Flux;
@@ -25,13 +27,15 @@ import tools.jackson.databind.ObjectMapper;
 public class ChatCompletionController {
 
     private static final ServerSentEvent<String> DONE_EVENT = ServerSentEvent.<String>builder("[DONE]").build();
+    private static final String CACHE_HEADER = "X-Cache";
+    private static final String CACHE_SIMILARITY_HEADER = "X-Cache-Similarity";
 
-    private final FallbackChainRouter router;
+    private final SemanticCache semanticCache;
     private final ChatCompletionMapper mapper;
     private final ObjectMapper objectMapper;
 
-    public ChatCompletionController(FallbackChainRouter router, ChatCompletionMapper mapper, ObjectMapper objectMapper) {
-        this.router = router;
+    public ChatCompletionController(SemanticCache semanticCache, ChatCompletionMapper mapper, ObjectMapper objectMapper) {
+        this.semanticCache = semanticCache;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
     }
@@ -45,31 +49,54 @@ public class ChatCompletionController {
     }
 
     private Mono<ResponseEntity<?>> completeResponse(ChatRequest coreRequest) {
-        return router.complete(coreRequest).map(mapper::toApiResponse).map(chatResponse -> {
-            ResponseEntity<?> response = ResponseEntity.ok(chatResponse);
-            return response;
-        });
+        return TenantContext.current()
+                .flatMap(tenant -> semanticCache.complete(coreRequest, tenant.id()))
+                .map(result -> {
+                    ChatCompletionResponse body = mapper.toApiResponse(result.response());
+                    ResponseEntity.BodyBuilder builder =
+                            ResponseEntity.ok().header(CACHE_HEADER, cacheStatus(result.hit()));
+                    if (result.hit()) {
+                        builder.header(CACHE_SIMILARITY_HEADER, String.valueOf(result.similarity()));
+                    }
+                    ResponseEntity<?> response = builder.body(body);
+                    return response;
+                });
     }
 
     private Mono<ResponseEntity<?>> streamResponse(ChatRequest coreRequest) {
-        Flux<ServerSentEvent<String>> body = streamChatCompletion(coreRequest);
-        ResponseEntity<?> response = ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(body);
-        return Mono.just(response);
+        return TenantContext.current()
+                .flatMap(tenant -> semanticCache.stream(coreRequest, tenant.id()))
+                .map(result -> {
+                    Flux<ServerSentEvent<String>> body = toSseFlux(result.chunks(), coreRequest.model());
+                    ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+                            .contentType(MediaType.TEXT_EVENT_STREAM)
+                            .header(CACHE_HEADER, cacheStatus(result.hit()));
+                    if (result.hit()) {
+                        builder.header(CACHE_SIMILARITY_HEADER, String.valueOf(result.similarity()));
+                    }
+                    ResponseEntity<?> response = builder.body(body);
+                    return response;
+                });
+    }
+
+    private static String cacheStatus(boolean hit) {
+        return hit ? "HIT" : "MISS";
     }
 
     /**
      * Errors here can't go through ApiExceptionHandler - the 200 and headers are already on the
      * wire by the time a mid-stream failure happens, so the only way to signal it is an SSE frame
      * carrying the same ErrorResponse shape the advice returns, followed by [DONE] so clients
-     * looping until the sentinel don't hang. Cancellation logging lives in FallbackChainRouter now,
-     * since it's the layer that knows which provider was actually in flight.
+     * looping until the sentinel don't hang. Cancellation logging lives in FallbackChainRouter,
+     * since it's the layer that knows which provider was actually in flight (a cache hit never
+     * reaches a provider at all, so there's nothing to log there in that case).
      */
-    private Flux<ServerSentEvent<String>> streamChatCompletion(ChatRequest coreRequest) {
+    private Flux<ServerSentEvent<String>> toSseFlux(Flux<ChatChunk> chunks, String model) {
         String id = "chatcmpl-" + UUID.randomUUID();
         long created = Instant.now().getEpochSecond();
 
-        return router.stream(coreRequest)
-                .concatMap(chunk -> Flux.fromIterable(mapper.toApiChunks(chunk, id, created, coreRequest.model())))
+        return chunks
+                .concatMap(chunk -> Flux.fromIterable(mapper.toApiChunks(chunk, id, created, model)))
                 .map(this::toEvent)
                 .concatWithValues(DONE_EVENT)
                 .onErrorResume(error -> Flux.just(toEvent(toErrorResponse(error)), DONE_EVENT));

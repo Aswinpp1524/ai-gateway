@@ -66,6 +66,7 @@ gateway:
     enabled: true
     similarity-threshold: 0.95
     ttl-hours: 24
+    max-cacheable-temperature: 0.3
   embedding:
     dimension: 768
 

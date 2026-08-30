@@ -70,6 +70,16 @@ model.
 - Embedding dimension is 768 (nomic-embed-text) and is baked into the schema.
 - Ollama streams newline-delimited JSON, not SSE. OpenAI and Anthropic use
   real SSE frames with a `data:` prefix. The adapters parse differently.
+- Retryable and failover-eligible are different predicates.
+  CallNotPermittedException (open circuit) is failover-eligible but not
+  retry-eligible - retrying into an open circuit is pointless.
+- Streaming failover only applies before the first chunk reaches the client.
+  Once partial output is delivered, any retry would produce garbled text.
+  Resilience4j's RetryOperator can't be used on a Flux for this reason -
+  it resubscribes the whole stream.
+- Postgres.app runs a native server on 5432 and shadows the Docker container
+  (a specific localhost bind beats Docker's wildcard). The gateway container
+  is mapped to 5433 for this reason.
 
 ## Local development
 

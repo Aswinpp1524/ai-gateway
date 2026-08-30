@@ -35,14 +35,12 @@ public class RateLimitFilter implements WebFilter {
         if (ExemptPaths.isExempt(exchange)) {
             return chain.filter(exchange);
         }
-        return Mono.deferContextual(ctx -> {
-            Tenant tenant = ctx.get(Tenant.class);
-            return rateLimiter.tryAcquire(tenant.id(), tenant.rateLimitRpm())
-                    .flatMap(result -> {
-                        addRateLimitHeaders(exchange, tenant, result);
-                        return result.allowed() ? chain.filter(exchange) : tooManyRequests(exchange, result);
-                    });
-        });
+        return TenantContext.current()
+                .flatMap(tenant -> rateLimiter.tryAcquire(tenant.id(), tenant.rateLimitRpm())
+                        .flatMap(result -> {
+                            addRateLimitHeaders(exchange, tenant, result);
+                            return result.allowed() ? chain.filter(exchange) : tooManyRequests(exchange, result);
+                        }));
     }
 
     private static void addRateLimitHeaders(ServerWebExchange exchange, Tenant tenant, RateLimitResult result) {
