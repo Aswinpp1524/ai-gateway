@@ -1,0 +1,33 @@
+# Activated with -Dspring-boot.run.profiles=loadtest (or SPRING_PROFILES_ACTIVE=loadtest).
+# Turns on the stub provider used by load/scenarios/01-gateway-overhead.js so gateway overhead
+# can be measured in isolation from real provider latency. Everything else inherits from
+# application.yml.
+gateway:
+  providers:
+    stub:
+      enabled: true
+      models:
+        - stub-fast
+      response-content: >
+        This is a fixed stub response used for gateway overhead load testing. It carries no
+        real model output - only a deterministic token count so cost and usage metrics behave
+        normally under load.
+      prompt-tokens: 42
+      completion-tokens: 128
+      simulated-latency-millis: 0
+      stream-chunk-count: 8
+  # Profile-specific YAML replaces this list wholesale rather than merging with
+  # application.yml's, so the full order has to be restated here, not just "stub" appended.
+  fallback-order:
+    - stub
+    - openai
+    - anthropic
+    - ollama
+  pricing:
+    models:
+      # Zero-priced like llama3.2 below it - a load test shouldn't book fake spend against the
+      # demo tenant's monthly budget, and stub-fast would otherwise fall through to
+      # default-pricing and look like it costs real money.
+      "[stub-fast]":
+        input-price-per-million-micros: 0
+        output-price-per-million-micros: 0

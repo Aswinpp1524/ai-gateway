@@ -60,3 +60,25 @@ VALUES ('11111111-1111-1111-1111-111111111111', 'demo-tenant', 60);
 INSERT INTO api_keys (tenant_id, key_hash)
 VALUES ('11111111-1111-1111-1111-111111111111',
         encode(sha256('gw_demo_key_12345'::bytea), 'hex'));
+
+-- Dedicated low-limit tenant for load/scenarios/04-rate-limiting.js. Kept separate from
+-- demo-tenant so tripping its limit doesn't leave demo-tenant's bucket partially drained for
+-- whatever scenario runs next, and 20 rpm trips reliably without needing heavy concurrency.
+INSERT INTO tenants (id, name, rate_limit_rpm)
+VALUES ('22222222-2222-2222-2222-222222222222', 'loadtest-ratelimit-tenant', 20);
+
+INSERT INTO api_keys (tenant_id, key_hash)
+VALUES ('22222222-2222-2222-2222-222222222222',
+        encode(sha256('gw_loadtest_ratelimit_key'::bytea), 'hex'));
+
+-- Dedicated high-limit tenant for scenarios 1-3, which deliberately push concurrency well past
+-- demo-tenant's realistic 60 rpm (confirmed live: a 200-VU run against demo-tenant returned 429
+-- for 99.98% of requests, measuring RateLimitFilter instead of the thing each of those scenarios
+-- is named for). 1,000,000 rpm is a real, finite, configured limit - not a bypass - chosen high
+-- enough that none of scenarios 1-3's traffic can trip it.
+INSERT INTO tenants (id, name, rate_limit_rpm)
+VALUES ('33333333-3333-3333-3333-333333333333', 'loadtest-tenant', 1000000);
+
+INSERT INTO api_keys (tenant_id, key_hash)
+VALUES ('33333333-3333-3333-3333-333333333333',
+        encode(sha256('gw_loadtest_key'::bytea), 'hex'));
